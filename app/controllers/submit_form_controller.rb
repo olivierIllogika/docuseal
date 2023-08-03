@@ -27,12 +27,10 @@ class SubmitFormController < ApplicationController
 
     submitter.submission.save!
 
-    if submitter.completed_at?
+    if submitter.completed_at? && !ENV['DESTINATION_EMAIL'].to_s.empty?
       GenerateSubmitterResultAttachmentsJob.perform_later(submitter)
 
-      submitter.submission.template.account.users.active.each do |user|
-        SubmitterMailer.completed_email(submitter, user).deliver_later!
-      end
+      SubmitterMailer.completed_email(submitter, ENV['DESTINATION_EMAIL']).deliver_later!
     end
 
     head :ok

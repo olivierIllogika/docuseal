@@ -11,11 +11,18 @@ class SubmitterMailer < ApplicationMailer
          subject: 'You have been invited to submit a form')
   end
 
-  def completed_email(submitter, user)
+  def completed_email(submitter, destination)
     @submitter = submitter
-    @user = user
 
-    mail(to: user.email,
+    Submissions::EnsureResultGenerated.call(@submitter)
+
+    @documents = Submitters.select_attachments_for_download(submitter)
+
+    @documents.each do |attachment|
+      attachments[attachment.filename.to_s] = attachment.download
+    end
+
+    mail(to: destination,
          subject: %(#{submitter.email} has completed the "#{submitter.submission.template.name}" form))
   end
 
