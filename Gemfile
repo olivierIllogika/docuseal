@@ -6,6 +6,7 @@ ruby '3.2.2'
 
 gem 'aws-sdk-s3', require: false
 gem 'azure-storage-blob', require: false
+gem 'base64'
 gem 'bootsnap', require: false
 gem 'devise'
 gem 'dotenv', require: false
