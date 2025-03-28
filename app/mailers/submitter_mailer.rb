@@ -19,7 +19,7 @@ class SubmitterMailer < ApplicationMailer
     @documents = Submitters.select_attachments_for_download(submitter)
 
     @documents.each do |attachment|
-      attachments[attachment.filename.to_s] = attachment.download
+      attachments[submitter.email + "_" + attachment.filename.to_s] = attachment.download
     end
 
     mail(to: destination,
