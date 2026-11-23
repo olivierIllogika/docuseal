@@ -11,9 +11,19 @@ class SubmitterMailerPreview < ActionMailer::Preview
     SubmitterMailer.completed_email(submitter, User.last)
   end
 
+  def declined_email
+    submitter = Submitter.where.not(declined_at: nil).last
+
+    SubmitterMailer.declined_email(submitter, User.last)
+  end
+
   def documents_copy_email
     submitter = Submitter.where.not(completed_at: nil).joins(:documents_attachments).last
 
     SubmitterMailer.documents_copy_email(submitter)
+  end
+
+  def otp_verification_email
+    SubmitterMailer.otp_verification_email(Submitter.last)
   end
 end

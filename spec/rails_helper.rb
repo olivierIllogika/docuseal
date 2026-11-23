@@ -7,7 +7,11 @@ require_relative '../config/environment'
 abort('The Rails environment is running in production mode!') if Rails.env.production?
 require 'rspec/rails'
 require 'capybara/cuprite'
+require 'capybara/rspec'
 require 'webmock/rspec'
+require 'signing_form_helper'
+
+Sidekiq.testing!(:fake)
 
 WebMock.disable_net_connect!(allow_localhost: true)
 
@@ -16,11 +20,14 @@ require 'simplecov' if ENV['COVERAGE']
 Capybara.server = :puma, { Silent: true }
 Capybara.disable_animation = true
 
+blink_settings = 'primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'
+
 Capybara.register_driver(:headless_cuprite) do |app|
   Capybara::Cuprite::Driver.new(app, window_size: [1200, 800],
                                      process_timeout: 20,
                                      timeout: 20,
-                                     js_errors: true)
+                                     js_errors: true,
+                                     browser_options: { 'no-sandbox' => nil, 'blink-settings' => blink_settings })
 end
 
 Capybara.register_driver(:headful_cuprite) do |app|
@@ -28,10 +35,11 @@ Capybara.register_driver(:headful_cuprite) do |app|
                                      headless: false,
                                      process_timeout: 20,
                                      timeout: 20,
-                                     js_errors: true)
+                                     js_errors: true,
+                                     browser_options: { 'no-sandbox' => nil, 'blink-settings' => blink_settings })
 end
 
-Dir[Rails.root.join('spec/support/**/*.rb')].each { |f| require f }
+Rails.root.glob('spec/support/**/*.rb').each { |f| require f }
 
 begin
   ActiveRecord::Migration.maintain_test_schema!
@@ -45,6 +53,9 @@ RSpec.configure do |config|
   config.filter_rails_from_backtrace!
 
   config.include FactoryBot::Syntax::Methods
+  config.include Devise::Test::IntegrationHelpers
+  config.include SigningFormHelper
+  config.include ActiveSupport::Testing::TimeHelpers
 
   config.before(:each, type: :system) do
     if ENV['HEADLESS'] == 'false'
@@ -53,4 +64,23 @@ RSpec.configure do |config|
       driven_by :headless_cuprite
     end
   end
+
+  config.before do
+    Sidekiq::Worker.clear_all
+    Faker::UniqueGenerator.clear
+  end
+
+  config.before do |example|
+    Sidekiq.testing!(:inline) if example.metadata[:sidekiq] == :inline
+  end
+
+  config.after do |example|
+    Sidekiq.testing!(:fake) if example.metadata[:sidekiq] == :inline
+  end
+
+  config.before(multitenant: true) do
+    allow(Docuseal).to receive(:multitenant?).and_return(true)
+  end
 end
+
+ActiveSupport.run_load_hooks(:rails_specs, self)

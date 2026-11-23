@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 
 module GenerateCertificate
-  NAME = Docuseal::PRODUCT_NAME
   SIZE = 2**11
+
+  Pkcs12Struct = Struct.new(:certificate, :ca_certs)
 
   module_function
 
-  def call(name = NAME)
+  def call(name = Docuseal.product_name)
     root_cert, root_key = generate_root_ca(name)
 
     sub_cert, sub_key = generate_sub_ca(name, root_cert, root_key)
@@ -86,5 +87,22 @@ module GenerateCertificate
     cert.sign(ca_key, OpenSSL::Digest.new('SHA256'))
 
     [cert, key]
+  end
+
+  def load_pkcs(cert_data)
+    cert = OpenSSL::X509::Certificate.new(cert_data['cert'])
+    key = OpenSSL::PKey::RSA.new(cert_data['key']) if cert_data['key'].present?
+    sub_ca = OpenSSL::X509::Certificate.new(cert_data['sub_ca'])
+    root_ca = OpenSSL::X509::Certificate.new(cert_data['root_ca'])
+
+    return Pkcs12Struct.new(certificate: cert, ca_certs: [sub_ca, root_ca]) unless key
+
+    OpenSSL::PKCS12.create(
+      '',
+      '',
+      key,
+      cert,
+      [sub_ca, root_ca]
+    )
   end
 end

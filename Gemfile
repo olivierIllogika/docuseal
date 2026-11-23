@@ -2,40 +2,54 @@
 
 source 'https://rubygems.org'
 
-ruby '3.2.2'
+ruby '4.0.10'
 
+gem 'addressable'
+gem 'arabic-letter-connector', require: false
 gem 'aws-sdk-s3', require: false
-gem 'azure-storage-blob', require: false
 gem 'base64'
+gem 'aws-sdk-secretsmanager', require: false
+gem 'azure-blob', require: false
 gem 'bootsnap', require: false
+gem 'cancancan'
+gem 'csv', require: false
+gem 'csv-safe', require: false
 gem 'devise'
+gem 'devise-two-factor'
 gem 'dotenv', require: false
+gem 'email_typo'
 gem 'faraday'
+gem 'faraday-follow_redirects'
 gem 'google-cloud-storage', require: false
 gem 'hexapdf'
-gem 'image_processing'
+gem 'jwt', require: false
 gem 'lograge'
-gem 'mysql2', require: false
-gem 'oj'
-gem 'omniauth-google-oauth2'
-gem 'omniauth-rails_csrf_protection'
+gem 'numo-narray-alt', require: false
+gem 'onnxruntime', require: false
 gem 'pagy'
 gem 'pg', require: false
-gem 'premailer-rails'
-gem 'puma'
+gem 'pretender'
+gem 'puma', require: false
+gem 'rack'
 gem 'rails'
 gem 'rails-i18n'
-gem 'rollbar', require: ENV.key?('ROLLBAR_ACCESS_TOKEN')
+gem 'rotp'
+gem 'rouge', require: false
+gem 'rqrcode', require: false
 gem 'ruby-vips'
+gem 'rubyzip', require: false
 gem 'shakapacker'
-gem 'sidekiq', require: ENV.key?('REDIS_URL')
+gem 'sidekiq'
 gem 'sqlite3', require: false
 gem 'strip_attributes'
+gem 'trilogy', require: false
 gem 'turbo-rails'
+gem 'twitter_cldr', require: false
 gem 'tzinfo-data'
+gem 'wordcraft', require: false, group: :ce
+gem 'xlsxtream', require: false
 
 group :development, :test do
-  gem 'annotate'
   gem 'better_html'
   gem 'bullet'
   gem 'debug'
@@ -52,6 +66,9 @@ group :development, :test do
 end
 
 group :development do
+  gem 'annotaterb'
+  gem 'brakeman', require: false
+  gem 'foreman', require: false
   gem 'letter_opener_web'
   gem 'web-console'
 end

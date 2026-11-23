@@ -2,13 +2,15 @@
   <span class="flex items-center justify-center space-x-2">
     <%= icon %>
     <% if title %>
-      <span><%= title %></span>
+      <span class="<%= local_assigns[:title_class] %>"><%= title %></span>
     <% end %>
   </span>
 </span>
 <span class="disabled">
   <span class="flex items-center justify-center space-x-2">
-    <%= svg_icon('loader', class: 'w-6 h-6 animate-spin') %>
-    <span><%= disabled_with %>...</span>
+    <%= local_assigns[:icon_disabled] || svg_icon('loader', class: 'w-5 h-5 animate-spin') %>
+    <% if disabled_with %>
+      <span class="<%= local_assigns[:title_class] %>"><%= disabled_with %>...</span>
+    <% end %>
   </span>
 </span>

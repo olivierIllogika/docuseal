@@ -1,12 +1,13 @@
 <template>
   <div
+    id="dropzone"
     class="flex h-32 w-full"
     @dragover.prevent
     @drop.prevent="onDropFiles"
   >
     <label
       :for="inputId"
-      class="w-full relative bg-base-300 hover:bg-base-200 rounded-md border border-base-content border-dashed"
+      class="w-full relative bg-base-300 hover:bg-base-200 rounded-md border border-base-content border-dashed file-dropzone"
       :class="{ 'opacity-50': isLoading }"
     >
       <div class="absolute top-0 right-0 left-0 bottom-0 flex items-center justify-center">
@@ -29,7 +30,7 @@
             {{ message }}
           </div>
           <div class="text-xs">
-            <span class="font-medium">Click to upload</span> or drag and drop files
+            <span class="font-medium">{{ t('click_to_upload') }}</span> {{ t('or_drag_and_drop_files') }}
           </div>
         </div>
       </div>
@@ -38,8 +39,9 @@
         ref="input"
         :multiple="multiple"
         :accept="accept"
+        :aria-label="message"
         type="file"
-        class="hidden"
+        class="sr-only"
         @change="onSelectFiles"
       >
     </label>
@@ -49,12 +51,43 @@
 <script>
 import { IconCloudUpload, IconInnerShadowTop } from '@tabler/icons-vue'
 
+function convertImage (sourceFile, targetType, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onload = function (event) {
+      const img = new Image()
+
+      img.onload = function () {
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+
+        canvas.width = img.width
+        canvas.height = img.height
+        ctx.drawImage(img, 0, 0)
+        canvas.toBlob(function (blob) {
+          const ext = targetType === 'image/jpeg' ? '.jpg' : '.png'
+          const newFile = new File([blob], sourceFile.name.replace(/\.\w+$/, ext), { type: targetType })
+          resolve(newFile)
+        }, targetType, quality)
+      }
+
+      img.onerror = () => reject(new Error(`browser cannot decode ${sourceFile.type || sourceFile.name}`))
+
+      img.src = event.target.result
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(sourceFile)
+  })
+}
+
 export default {
   name: 'FileDropzone',
   components: {
     IconCloudUpload,
     IconInnerShadowTop
   },
+  inject: ['baseUrl', 'fetchOptions', 't'],
   props: {
     message: {
       type: String,
@@ -64,15 +97,15 @@ export default {
       type: String,
       required: true
     },
+    dryRun: {
+      type: Boolean,
+      required: false,
+      default: false
+    },
     accept: {
       type: String,
       required: false,
       default: '*/*'
-    },
-    isDirectUpload: {
-      type: Boolean,
-      required: true,
-      default: false
     },
     multiple: {
       type: Boolean,
@@ -91,93 +124,110 @@ export default {
       return 'el' + Math.random().toString(32).split('.')[1]
     }
   },
-  mounted () {
-    if (this.isDirectUpload) {
-      import('@rails/activestorage')
-    }
-  },
   methods: {
     onDropFiles (e) {
-      this.uploadFiles(e.dataTransfer.files)
+      const files = Array.from(e.dataTransfer.files).filter((f) => {
+        if (this.accept === 'image/*') {
+          return f.type.startsWith('image')
+        } else {
+          return true
+        }
+      })
+
+      if (this.accept === 'image/*' && !files.length) {
+        alert(this.t('please_upload_an_image_file'))
+      } else {
+        this.uploadFiles(files)
+      }
     },
     onSelectFiles (e) {
       e.preventDefault()
 
-      this.uploadFiles(this.$refs.input.files).then(() => {
-        if (this.$refs.input) {
-          this.$refs.input.value = ''
+      const files = Array.from(this.$refs.input.files).filter((f) => {
+        if (this.accept === 'image/*') {
+          return f.type.startsWith('image')
+        } else {
+          return true
         }
       })
+
+      if (this.accept === 'image/*' && !files.length) {
+        alert(this.t('please_upload_an_image_file'))
+      } else {
+        this.uploadFiles(files).then(() => {
+          if (this.$refs.input) {
+            this.$refs.input.value = ''
+          }
+        })
+      }
     },
     async uploadFiles (files) {
       this.isLoading = true
 
-      if (this.isDirectUpload) {
-        const { DirectUpload } = await import('@rails/activestorage')
+      return await Promise.all(
+        Array.from(files).map(async (file) => {
+          const formData = new FormData()
 
-        const blobs = await Promise.all(
-          Array.from(files).map(async (file) => {
-            const upload = new DirectUpload(
-              file,
-              '/direct_uploads',
-              this.$refs.input
-            )
+          if (this.dryRun) {
+            return new Promise((resolve) => {
+              const reader = new FileReader()
 
-            return new Promise((resolve, reject) => {
-              upload.create((error, blob) => {
-                if (error) {
-                  console.error(error)
+              reader.readAsDataURL(file)
 
-                  return reject(error)
-                } else {
-                  return resolve(blob)
-                }
-              })
-            }).catch((error) => {
-              console.error(error)
+              reader.onloadend = () => {
+                resolve({
+                  url: reader.result,
+                  uuid: Math.random().toString(),
+                  filename: file.name
+                })
+              }
             })
-          })
-        )
-
-        return await Promise.all(
-          blobs.map((blob) => {
-            return fetch('/api/attachments', {
-              method: 'POST',
-              body: JSON.stringify({
-                name: 'attachments',
-                blob_signed_id: blob.signed_id,
-                submitter_slug: this.submitterSlug
-              }),
-              headers: { 'Content-Type': 'application/json' }
-            }).then(resp => resp.json()).then((data) => {
-              return data
-            })
-          })).then((result) => {
-          this.$emit('upload', result)
-        }).finally(() => {
-          this.isLoading = false
-        })
-      } else {
-        return await Promise.all(
-          Array.from(files).map((file) => {
-            const formData = new FormData()
+          } else {
+            try {
+              if (['image/bmp', 'image/vnd.microsoft.icon', 'image/svg+xml', 'image/gif'].includes(file.type)) {
+                file = await convertImage(file, 'image/png')
+              } else if (['image/heic', 'image/heif', 'image/heic-sequence', 'image/heif-sequence', 'image/avif', 'image/avif-sequence', 'image/webp'].includes(file.type)) {
+                file = await convertImage(file, 'image/jpeg', 0.9)
+              }
+            } catch (e) {
+              alert(e.message)
+            }
 
             formData.append('file', file)
             formData.append('submitter_slug', this.submitterSlug)
             formData.append('name', 'attachments')
 
-            return fetch('/api/attachments', {
+            return fetch(this.baseUrl + `/s/${this.submitterSlug}/upload`, {
               method: 'POST',
+              headers: { ...this.fetchOptions.headers },
               body: formData
-            }).then(resp => resp.json()).then((data) => {
-              return data
+            }).then((resp) => {
+              if (resp.status === 404) {
+                return fetch(this.baseUrl + '/api/attachments', {
+                  method: 'POST',
+                  headers: { ...this.fetchOptions.headers },
+                  body: formData
+                })
+              } else {
+                return resp
+              }
+            }).then(async (resp) => {
+              const data = await resp.json()
+
+              if (resp.status === 422) {
+                alert(data.error)
+              } else {
+                return data
+              }
             })
-          })).then((result) => {
+          }
+        })).then((result) => {
+        if (result && result[0]) {
           this.$emit('upload', result)
-        }).finally(() => {
-          this.isLoading = false
-        })
-      }
+        }
+      }).finally(() => {
+        this.isLoading = false
+      })
     }
   }
 }

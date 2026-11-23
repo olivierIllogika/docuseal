@@ -1,102 +1,86 @@
 import { actionable } from '@github/catalyst/lib/actionable'
 import { target, targetable } from '@github/catalyst/lib/targetable'
+import { convertImagesInInput } from './convert_upload'
 
 export default actionable(targetable(class extends HTMLElement {
   static [target.static] = [
     'loading',
     'icon',
-    'input'
+    'input',
+    'area'
   ]
 
   connectedCallback () {
-    if (this.dataset.isDirectUpload === 'true') {
-      import('@rails/activestorage')
-    }
-
-    this.addEventListener('drop', this.onDrop)
-
     this.addEventListener('dragover', (e) => e.preventDefault())
-
+    this.addEventListener('drop', this.onDrop)
     document.addEventListener('turbo:submit-end', this.toggleLoading)
+
+    if (this.area) {
+      this.initArea()
+    } else {
+      queueMicrotask(() => this.initArea())
+    }
+  }
+
+  initArea () {
+    this.area?.addEventListener('dragover', this.onDragover)
+    this.area?.addEventListener('dragleave', this.onDragleave)
   }
 
   disconnectedCallback () {
+    this.removeEventListener('drop', this.onDrop)
     document.removeEventListener('turbo:submit-end', this.toggleLoading)
+    this.area?.removeEventListener('dragover', this.onDragover)
+    this.area?.removeEventListener('dragleave', this.onDragleave)
   }
 
-  onDrop (e) {
+  onDragover (e) {
+    if (e.dataTransfer?.types?.includes('Files')) {
+      this.style.backgroundColor = '#F7F3F0'
+      this.classList.remove('border-base-300', 'hover:bg-base-200/30')
+      this.classList.add('border-base-content/30')
+    }
+  }
+
+  onDragleave () {
+    this.style.backgroundColor = null
+    this.classList.remove('border-base-content/30')
+    this.classList.add('border-base-300', 'hover:bg-base-200/30')
+  }
+
+  async onDrop (e) {
     e.preventDefault()
 
     this.input.files = e.dataTransfer.files
 
-    this.uploadFiles(e.dataTransfer.files)
-  }
-
-  onSelectFiles (e) {
-    e.preventDefault()
+    await convertImagesInInput(this.input)
 
     this.uploadFiles(this.input.files)
   }
 
-  toggleLoading = () => {
+  async onSelectFiles (e) {
+    e.preventDefault()
+
+    await convertImagesInInput(this.input)
+
+    this.uploadFiles(this.input.files)
+  }
+
+  toggleLoading = (e) => {
+    if (e && e.target && (!e.target.contains(this) || !e.detail?.formSubmission?.formElement?.contains(this))) {
+      return
+    }
+
     this.loading.classList.toggle('hidden')
     this.icon.classList.toggle('hidden')
     this.classList.toggle('opacity-50')
   }
 
-  async uploadFiles (files) {
+  uploadFiles () {
     this.toggleLoading()
 
-    if (this.dataset.isDirectUpload === 'true') {
-      const { DirectUpload } = await import('@rails/activestorage')
-
-      await Promise.all(
-        Array.from(files).map(async (file) => {
-          const upload = new DirectUpload(
-            file,
-            '/direct_uploads',
-            this.input
-          )
-
-          return new Promise((resolve, reject) => {
-            upload.create((error, blob) => {
-              if (error) {
-                console.error(error)
-
-                return reject(error)
-              } else {
-                return resolve(blob)
-              }
-            })
-          }).catch((error) => {
-            console.error(error)
-          })
-        })
-      ).then((blobs) => {
-        if (this.dataset.submitOnUpload) {
-          this.querySelectorAll('[name="blob_signed_ids[]"]').forEach((e) => e.remove())
-        }
-
-        blobs.forEach((blob) => {
-          const input = document.createElement('input')
-
-          input.type = 'hidden'
-          input.name = 'blob_signed_ids[]'
-          input.value = blob.signed_id
-
-          this.append(input)
-        })
-
-        if (this.dataset.submitOnUpload) {
-          this.closest('form').querySelector('button[type="submit"]').click()
-        }
-      }).finally(() => {
-        this.toggleLoading()
-      })
-    } else {
-      if (this.dataset.submitOnUpload) {
-        this.closest('form').querySelector('button[type="submit"]').click()
-      }
+    if (this.dataset.submitOnUpload) {
+      this.closest('form').querySelector('button[type="submit"]').click()
     }
   }
 }))

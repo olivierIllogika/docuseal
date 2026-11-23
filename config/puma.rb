@@ -5,7 +5,9 @@
 # Any libraries that use thread pools should be configured to match
 # the maximum value specified for Puma. Default is set to 5 threads for minimum
 # and maximum; this matches the default thread size of Active Record.
-#
+
+require_relative 'dotenv'
+
 max_threads_count = ENV.fetch('RAILS_MAX_THREADS', 15)
 min_threads_count = ENV.fetch('RAILS_MIN_THREADS') { max_threads_count }
 threads min_threads_count, max_threads_count
@@ -24,15 +26,21 @@ port ENV.fetch('PORT', 3000)
 environment ENV.fetch('RAILS_ENV', 'development')
 
 # Specifies the `pidfile` that Puma will use.
-# pidfile ENV.fetch('PIDFILE', 'tmp/pids/server.pid')
+@options[:pidfile] = false
 
 # Specifies the number of `workers` to boot in clustered mode.
 # Workers are forked web server processes. If using threads and workers together
 # the concurrency of the application would be max `threads` * `workers`.
 # Workers do not work on JRuby or Windows (both of which do not support
 # processes).
-#
-workers ENV.fetch('WEB_CONCURRENCY', 0)
+
+if ENV['WEB_CONCURRENCY_AUTO'] == 'true'
+  require 'etc'
+
+  workers Etc.nprocessors
+else
+  workers ENV.fetch('WEB_CONCURRENCY', 0)
+end
 
 # Use the `preload_app!` method when specifying a `workers` number.
 # This directive tells Puma to first boot the application and load code
@@ -41,5 +49,10 @@ workers ENV.fetch('WEB_CONCURRENCY', 0)
 #
 # preload_app!
 
-# Allow puma to be restarted by `bin/rails restart` command.
-plugin :tmp_restart
+if ENV['MULTITENANT'] != 'true' || ENV['DEMO'] == 'true'
+  require_relative '../lib/puma/plugin/redis_server'
+  require_relative '../lib/puma/plugin/sidekiq_embed'
+
+  plugin :sidekiq_embed
+  plugin :redis_server
+end

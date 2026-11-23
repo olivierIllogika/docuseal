@@ -1,62 +1,136 @@
 # frozen_string_literal: true
 
 class UsersController < ApplicationController
-  before_action :load_user, only: %i[edit update destroy]
+  load_and_authorize_resource :user, only: %i[index edit update destroy]
+
+  before_action :build_user, only: :create
+  authorize_resource :user, only: :create
 
   def index
-    @pagy, @users = pagy(current_account.users.active.order(id: :desc))
+    @users =
+      if params[:status] == 'archived'
+        @users.archived.where.not(role: 'integration')
+      elsif params[:status] == 'integration'
+        @users.active.where(role: 'integration')
+      else
+        @users.active.where.not(role: 'integration')
+      end
+
+    @users = @users.preload(account: :account_accesses).where(account: current_account).order(id: :desc)
+
+    respond_to do |format|
+      format.html do
+        @pagy, @users = pagy(@users, limit: turbo_native_app? ? 1_000 : Pagy::OPTIONS[:limit])
+      end
+
+      if current_ability.can?(:manage, current_account)
+        format.csv do
+          send_data Users.generate_csv(@users), filename: "users-#{Time.current.iso8601}.csv", type: 'text/csv'
+        end
+      end
+    end
   end
 
   def new
     @user = current_account.users.new
+
+    authorize!(:create, @user)
+
+    render layout: turbo_native_app? ? 'plain' : true
   end
 
-  def edit; end
+  def edit
+    render layout: turbo_native_app? ? 'plain' : true
+  end
 
   def create
-    @user = current_account.users.find_by(email: user_params[:email])&.tap do |user|
-      user.assign_attributes(user_params)
-      user.deleted_at = nil
+    existing_user = User.accessible_by(current_ability).find_by(email: @user.email)
+
+    if existing_user
+      if existing_user.archived_at? &&
+         current_ability.can?(:manage, existing_user) && current_ability.can?(:manage, @user.account)
+        existing_user.assign_attributes(@user.slice(:first_name, :last_name, :role, :account_id))
+        existing_user.archived_at = nil
+        @user = existing_user
+      else
+        @user.errors.add(:email, I18n.t('already_exists'))
+
+        return render turbo_stream: turbo_stream.replace(:modal, template: 'users/new'), status: :unprocessable_content
+      end
     end
 
-    @user ||= current_account.users.new(user_params)
+    @user.password = SecureRandom.hex if @user.password.blank?
+    @user.role = User::ADMIN_ROLE unless role_valid?(@user.role)
 
     if @user.save
       UserMailer.invitation_email(@user).deliver_later!
 
-      redirect_to settings_users_path, notice: 'User has been invited'
+      redirect_back fallback_location: settings_users_path, notice: I18n.t('user_has_been_invited')
     else
-      render turbo_stream: turbo_stream.replace(:modal, template: 'users/new'), status: :unprocessable_entity
+      render turbo_stream: turbo_stream.replace(:modal, template: 'users/new'), status: :unprocessable_content
     end
   end
 
   def update
-    return redirect_to settings_users_path, notice: 'Unable to update user.' if Docuseal.demo?
+    return redirect_to settings_users_path, notice: I18n.t('unable_to_update_user') if Docuseal.demo?
 
-    if @user.update(user_params.compact_blank)
-      redirect_to settings_users_path, notice: 'User has been updated'
+    attrs = user_params.compact_blank
+    attrs = attrs.merge(user_params.slice(:archived_at)) if current_ability.can?(:create, @user)
+    attrs = attrs.slice(:archived_at) if @user.role == 'integration'
+
+    if params.dig(:user, :account_id).present? && @user.role != 'integration'
+      account = Account.accessible_by(current_ability).find(params.dig(:user, :account_id))
+
+      authorize!(:manage, account)
+
+      @user.account = account
+
+      authorize!(:create, @user)
+    end
+
+    if @user.update(attrs.except(*(current_user == @user ? %i[password otp_required_for_login role] : %i[password])))
+      if @user.try(:pending_reconfirmation?) && @user.previous_changes.key?(:unconfirmed_email)
+        SendConfirmationInstructionsJob.perform_async('user_id' => @user.id)
+
+        redirect_back fallback_location: settings_users_path,
+                      notice: I18n.t('a_confirmation_email_has_been_sent_to_the_new_email_address')
+      else
+        redirect_back fallback_location: settings_users_path, notice: I18n.t('user_has_been_updated')
+      end
     else
-      render turbo_stream: turbo_stream.replace(:modal, template: 'users/edit'), status: :unprocessable_entity
+      render turbo_stream: turbo_stream.replace(:modal, template: 'users/edit'), status: :unprocessable_content
     end
   end
 
   def destroy
     if Docuseal.demo? || @user.id == current_user.id
-      return redirect_to settings_users_path, notice: 'Unable to remove user'
+      return redirect_to settings_users_path, notice: I18n.t('unable_to_remove_user')
     end
 
-    @user.update!(deleted_at: Time.current)
+    @user.update!(archived_at: Time.current)
 
-    redirect_to settings_users_path, notice: 'User has been removed'
+    redirect_back fallback_location: settings_users_path, notice: I18n.t('user_has_been_removed')
   end
 
   private
 
-  def load_user
-    @user = current_account.users.find(params[:id])
+  def role_valid?(role)
+    User::ROLES.include?(role)
+  end
+
+  def build_user
+    @user = current_account.users.new(user_params)
   end
 
   def user_params
-    params.require(:user).permit(:email, :first_name, :last_name, :password)
+    if params.key?(:user)
+      permitted_params = %i[email first_name last_name password archived_at otp_required_for_login]
+
+      permitted_params << :role if role_valid?(params.dig(:user, :role))
+
+      params.require(:user).permit(permitted_params)
+    else
+      {}
+    end
   end
 end

@@ -3,6 +3,7 @@
 class SetupController < ApplicationController
   skip_before_action :maybe_redirect_to_setup
   skip_before_action :authenticate_user!
+  skip_authorization_check
 
   before_action :redirect_to_root_if_signed, if: :signed_in?
   before_action :ensure_first_user_not_created!
@@ -16,15 +17,16 @@ class SetupController < ApplicationController
   def create
     @account = Account.new(account_params)
     @account.timezone = Accounts.normalize_timezone(@account.timezone)
-
     @user = @account.users.new(user_params)
+    @encrypted_config = EncryptedConfig.new(encrypted_config_params)
 
     unless URI.parse(encrypted_config_params[:value].to_s).class.in?([URI::HTTP, URI::HTTPS])
-      @encrypted_config = EncryptedConfig.new(encrypted_config_params)
-      @encrypted_config.errors.add(:value, 'should be a valid URL')
+      @encrypted_config.errors.add(:value, I18n.t('should_be_a_valid_url'))
 
-      return render :index, status: :unprocessable_entity
+      return render :index, status: :unprocessable_content
     end
+
+    return render :index, status: :unprocessable_content unless @account.valid?
 
     if @user.save
       encrypted_configs = [
@@ -32,6 +34,7 @@ class SetupController < ApplicationController
         { key: EncryptedConfig::ESIGN_CERTS_KEY, value: GenerateCertificate.call.transform_values(&:to_pem) }
       ]
       @account.encrypted_configs.create!(encrypted_configs)
+      @account.account_configs.create!(key: :fulltext_search, value: true) if SearchEntry.table_exists?
 
       Docuseal.refresh_default_url_options!
 
@@ -39,7 +42,7 @@ class SetupController < ApplicationController
 
       redirect_to newsletter_path
     else
-      render :index, status: :unprocessable_entity
+      render :index, status: :unprocessable_content
     end
   end
 
@@ -54,7 +57,7 @@ class SetupController < ApplicationController
   def account_params
     return {} unless params[:account]
 
-    params.require(:account).permit(:name, :timezone)
+    params.require(:account).permit(:name, :timezone, :locale)
   end
 
   def encrypted_config_params
@@ -64,10 +67,10 @@ class SetupController < ApplicationController
   end
 
   def redirect_to_root_if_signed
-    redirect_to root_path, notice: 'You are already signed in'
+    redirect_to root_path, notice: I18n.t('you_are_already_signed_in')
   end
 
   def ensure_first_user_not_created!
-    redirect_to new_user_session_path, notice: 'Please sign in.' if User.exists?
+    redirect_to new_user_session_path, notice: I18n.t('please_sign_in') if User.exists?
   end
 end

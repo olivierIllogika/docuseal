@@ -5,33 +5,38 @@
   >
     <span
       ref="contenteditable"
-      contenteditable
-      style="min-width: 2px"
-      :class="iconInline ? 'inline' : 'block'"
-      class="peer outline-none focus:block"
+      dir="auto"
+      :contenteditable="editable && (!editableOnButton || isEditable)"
+      :data-placeholder="placeholder"
+      :data-empty="isEmpty"
+      :style="{ minWidth }"
+      :class="[iconInline ? (isEmpty ? 'inline-block' : 'inline') : 'block', hideIcon ? 'focus:block' : '', contenteditableClasses]"
+      class="peer relative inline-block outline-none before:pointer-events-none before:absolute before:left-0 before:top-0 before:select-none before:whitespace-pre before:text-neutral-400 before:content-[attr(data-placeholder)] before:opacity-0 data-[empty=true]:before:opacity-100"
+      @paste.prevent="onPaste"
       @keydown.enter.prevent="blurContenteditable"
+      @input="updateInputValue"
+      @cut="updateInputValue"
       @focus="$emit('focus', $event)"
       @blur="onBlur"
+      @click="editable && (!editableOnButton || isEditable) ? '' : $emit('click-contenteditable')"
     >
       {{ value }}
     </span>
     <span
-      v-if="withRequired"
-      title="Required"
-      class="text-red-500 peer-focus:hidden"
-      @click="focusContenteditable"
+      v-if="withButton && (!isMobile || editableOnButton)"
+      class="relative inline"
+      :class="{ 'peer-focus:hidden': hideIcon, 'peer-focus:invisible': !hideIcon }"
     >
-      *
+      <IconPencil
+        class="cursor-pointer flex-none align-middle pl-1"
+        :style="iconInline ? {} : { right: -(1.1 * iconWidth) + 'px' }"
+        :title="t('edit')"
+        :class="{ invisible: !editable, 'opacity-0 group-hover/contenteditable-container:opacity-100 group-hover/contenteditable:opacity-100': !isMobile, 'absolute top-1/2 -translate-y-1/2': !iconInline || floatIcon, 'inline align-bottom': iconInline, 'left-0': floatIcon }"
+        :width="iconWidth + 4"
+        :stroke-width="iconStrokeWidth"
+        @click="clickEdit"
+      />
     </span>
-    <IconPencil
-      class="cursor-pointer flex-none opacity-0 group-hover/contenteditable:opacity-100 align-middle peer-focus:hidden"
-      :style="iconInline ? {} : { right: -(1.1 * iconWidth) + 'px' }"
-      title="Edit"
-      :class="{ 'ml-1': !withRequired, 'absolute': !iconInline, 'inline align-bottom': iconInline }"
-      :width="iconWidth"
-      :stroke-width="iconStrokeWidth"
-      @click="focusContenteditable"
-    />
   </div>
 </template>
 
@@ -43,11 +48,22 @@ export default {
   components: {
     IconPencil
   },
+  inject: ['t', 'isMobile'],
   props: {
     modelValue: {
       type: String,
       required: false,
       default: ''
+    },
+    placeholder: {
+      type: String,
+      required: false,
+      default: ''
+    },
+    withButton: {
+      type: Boolean,
+      required: false,
+      default: true
     },
     iconInline: {
       type: Boolean,
@@ -59,41 +75,133 @@ export default {
       required: false,
       default: 30
     },
-    withRequired: {
+    hideIcon: {
+      type: Boolean,
+      required: false,
+      default: true
+    },
+    floatIcon: {
       type: Boolean,
       required: false,
       default: false
+    },
+    selectOnEditClick: {
+      type: Boolean,
+      required: false,
+      default: false
+    },
+    editableOnButton: {
+      type: Boolean,
+      required: false,
+      default: false
+    },
+    minWidth: {
+      type: String,
+      required: false,
+      default: '2px'
+    },
+    editable: {
+      type: Boolean,
+      required: false,
+      default: true
     },
     iconStrokeWidth: {
       type: Number,
       required: false,
       default: 2
+    },
+    contenteditableClasses: {
+      type: String,
+      required: false,
+      default: ''
     }
   },
-  emits: ['update:model-value', 'focus', 'blur'],
+  emits: ['update:model-value', 'focus', 'blur', 'click-contenteditable'],
   data () {
     return {
+      isEditable: false,
+      inputValue: '',
       value: ''
+    }
+  },
+  computed: {
+    isEmpty () {
+      return !this.inputValue.replace(/\u200B/g, '').replace(/\u00A0/g, ' ').trim()
     }
   },
   watch: {
     modelValue: {
       handler (value) {
-        this.value = value
+        this.value = value || ''
       },
       immediate: true
     }
   },
+  mounted () {
+    this.updateInputValue()
+  },
   methods: {
+    updateInputValue () {
+      this.inputValue = this.$refs.contenteditable?.textContent || ''
+    },
+    onPaste (e) {
+      const text = (e.clipboardData || window.clipboardData).getData('text/plain')
+
+      const selection = this.$el.getRootNode().getSelection()
+
+      if (selection.rangeCount) {
+        selection.deleteFromDocument()
+        selection.getRangeAt(0).insertNode(document.createTextNode(text))
+        selection.collapseToEnd()
+      }
+
+      this.updateInputValue()
+    },
+    clickEdit (e) {
+      this.focusContenteditable()
+
+      if (this.selectOnEditClick) {
+        this.selectContent()
+      }
+    },
+    setText (text) {
+      this.$refs.contenteditable.innerText = text
+
+      this.updateInputValue()
+    },
+    selectContent () {
+      const el = this.$refs.contenteditable
+
+      const range = document.createRange()
+
+      range.selectNodeContents(el)
+
+      const sel = window.getSelection()
+
+      sel.removeAllRanges()
+
+      sel.addRange(range)
+    },
     onBlur (e) {
       setTimeout(() => {
-        this.value = this.$refs.contenteditable.innerText.trim() || this.modelValue
-        this.$emit('update:model-value', this.value)
+        if (this.$refs.contenteditable) {
+          this.value = this.$refs.contenteditable.innerText.trim() || this.modelValue
+          this.$emit('update:model-value', this.value)
+        }
+
         this.$emit('blur', e)
+
+        this.isEditable = false
       }, 1)
     },
     focusContenteditable () {
-      this.$refs.contenteditable.focus()
+      this.isEditable = true
+
+      this.$nextTick(() => {
+        this.$refs.contenteditable.focus()
+
+        this.updateInputValue()
+      })
     },
     blurContenteditable () {
       this.$refs.contenteditable.blur()

@@ -1,21 +1,36 @@
 <template>
   <div v-if="modelValue">
-    <div class="flex justify-between items-center w-full mb-2">
+    <div class="flex justify-between items-end w-full mb-3.5 md:mb-4">
       <label
-        class="label text-2xl"
-      >{{ field.name || 'Image' }}</label>
+        v-if="showFieldNames"
+        :for="field.uuid"
+        class="label text-xl sm:text-2xl py-0 field-name-label"
+      >
+        <MarkdownContent
+          v-if="field.title"
+          :string="field.title"
+        />
+        <template v-else>
+          {{ field.name || t('image') }}
+        </template>
+      </label>
       <button
-        class="btn btn-outline btn-sm"
+        type="button"
+        class="btn btn-outline btn-sm reupload-button"
         @click.prevent="remove"
       >
-        <IconReload :width="16" />
-        Reupload
+        <IconReload
+          :width="16"
+          aria-hidden="true"
+        />
+        {{ t('reupload') }}
       </button>
     </div>
     <div>
       <img
         :src="attachmentsIndex[modelValue].url"
-        class="h-52 border border-base-300 rounded mx-auto"
+        :alt="field.name || t('image')"
+        class="h-52 border border-base-300 rounded mx-auto uploaded-image-preview"
       >
     </div>
     <input
@@ -24,13 +39,21 @@
       :name="`values[${field.uuid}]`"
     >
   </div>
-  <div>
+  <div
+    v-if="!modelValue"
+  >
+    <div
+      v-if="field.description"
+      dir="auto"
+      class="mb-3 px-1 field-description-text"
+    >
+      <MarkdownContent :string="field.description" />
+    </div>
     <FileDropzone
-      v-if="!modelValue"
-      :message="`Upload ${field.name || 'Image'}${field.required ? '' : ' (optional)'}`"
+      :message="`${t('upload')} ${(field.title || field.name) || t('image')}${field.required ? '' : ` (${t('optional')})`}`"
       :submitter-slug="submitterSlug"
+      :dry-run="dryRun"
       :accept="'image/*'"
-      :is-direct-upload="isDirectUpload"
       @upload="onImageUpload"
     />
   </div>
@@ -39,21 +62,29 @@
 <script>
 import FileDropzone from './dropzone'
 import { IconReload } from '@tabler/icons-vue'
+import MarkdownContent from './markdown_content'
 
 export default {
   name: 'ImageStep',
   components: {
     FileDropzone,
-    IconReload
+    IconReload,
+    MarkdownContent
   },
+  inject: ['t'],
   props: {
     field: {
       type: Object,
       required: true
     },
-    isDirectUpload: {
+    showFieldNames: {
       type: Boolean,
-      required: true,
+      required: false,
+      default: true
+    },
+    dryRun: {
+      type: Boolean,
+      required: false,
       default: false
     },
     submitterSlug: {

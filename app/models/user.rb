@@ -5,23 +5,31 @@
 # Table name: users
 #
 #  id                     :bigint           not null, primary key
+#  archived_at            :datetime
+#  confirmation_sent_at   :datetime
+#  confirmation_token     :string
+#  confirmed_at           :datetime
+#  consumed_timestep      :integer
 #  current_sign_in_at     :datetime
 #  current_sign_in_ip     :string
-#  deleted_at             :datetime
 #  email                  :string           not null
 #  encrypted_password     :string           not null
 #  failed_attempts        :integer          default(0), not null
-#  first_name             :string           not null
-#  last_name              :string           not null
+#  first_name             :string
+#  last_name              :string
 #  last_sign_in_at        :datetime
 #  last_sign_in_ip        :string
 #  locked_at              :datetime
+#  otp_required_for_login :boolean          default(FALSE), not null
+#  otp_secret             :string
 #  remember_created_at    :datetime
 #  reset_password_sent_at :datetime
 #  reset_password_token   :string
 #  role                   :string           not null
 #  sign_in_count          :integer          default(0), not null
+#  unconfirmed_email      :string
 #  unlock_token           :string
+#  uuid                   :string           not null
 #  created_at             :datetime         not null
 #  updated_at             :datetime         not null
 #  account_id             :bigint           not null
@@ -32,43 +40,87 @@
 #  index_users_on_email                 (email) UNIQUE
 #  index_users_on_reset_password_token  (reset_password_token) UNIQUE
 #  index_users_on_unlock_token          (unlock_token) UNIQUE
+#  index_users_on_uuid                  (uuid) UNIQUE
 #
 # Foreign Keys
 #
 #  fk_rails_...  (account_id => accounts.id)
 #
 class User < ApplicationRecord
-  ROLES = %w[admin].freeze
+  ROLES = [
+    ADMIN_ROLE = 'admin'
+  ].freeze
 
-  EMAIL_REGEXP =
-    /[a-z0-9][.']?(?:(?:[a-z0-9_-]++[.'])*[a-z0-9_-]++)*@(?:[a-z0-9]++[.-])*[a-z0-9]++\.[a-z]{2,}/i
+  EMAIL_REGEXP = /[^@;,<>\s]+@[^@;,<>\s]+/
+
+  FULL_EMAIL_REGEXP =
+    /\A[a-z0-9][.']?(?:(?:[a-z0-9_-]+[.+'])*[a-z0-9_-]+)*@(?:[a-z0-9]+[.-])*[a-z0-9]+\.[a-z]{2,}\z/i
+
+  VALIDATE_EMAIL_REGEXP = /\A[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\z/
+
+  has_one_attached :signature
+  has_one_attached :initials
 
   belongs_to :account
+  has_one :access_token, dependent: :destroy
+  has_many :access_tokens, dependent: :destroy
+  has_many :mcp_tokens, dependent: :destroy
+  has_many :templates, dependent: :destroy, foreign_key: :author_id, inverse_of: :author
+  has_many :template_folders, dependent: :destroy, foreign_key: :author_id, inverse_of: :author
+  has_many :user_configs, dependent: :destroy
+  has_many :encrypted_configs, dependent: :destroy, class_name: 'EncryptedUserConfig'
+  has_many :email_messages, dependent: :destroy, foreign_key: :author_id, inverse_of: :author
 
-  devise :database_authenticatable, :recoverable, :rememberable, :validatable, :trackable
-  devise :registerable, :omniauthable, omniauth_providers: [:google_oauth2] if Docuseal.multitenant?
+  devise :two_factor_authenticatable, :recoverable, :rememberable, :validatable, :trackable, :lockable
 
-  attribute :role, :string, default: 'admin'
+  attribute :role, :string, default: ADMIN_ROLE
+  attribute :uuid, :string, default: -> { SecureRandom.uuid }
 
-  scope :active, -> { where(deleted_at: nil) }
+  scope :active, -> { where(archived_at: nil) }
+  scope :archived, -> { where.not(archived_at: nil) }
+  scope :admins, -> { where(role: ADMIN_ROLE) }
+
+  validates :email, format: { with: VALIDATE_EMAIL_REGEXP }
+
+  def access_token
+    super || build_access_token.tap(&:save!)
+  end
 
   def active_for_authentication?
-    !deleted_at?
+    super && !archived_at? && !account.archived_at?
   end
 
   def remember_me
     true
   end
 
+  def sidekiq?
+    return true if Rails.env.development?
+
+    role == 'admin'
+  end
+
+  def self.sign_in_after_reset_password
+    if PasswordsController::Current.user.present?
+      !PasswordsController::Current.user.otp_required_for_login
+    else
+      true
+    end
+  end
+
   def initials
-    [first_name.first, last_name.first].join.upcase
+    [first_name&.first, last_name&.first].compact_blank.join.upcase
   end
 
   def full_name
-    [first_name, last_name].join(' ')
+    [first_name, last_name].compact_blank.join(' ')
   end
 
   def friendly_name
-    "#{full_name} <#{email}>"
+    if full_name.present?
+      %("#{full_name.delete('"')}" <#{email}>)
+    else
+      email
+    end
   end
 end

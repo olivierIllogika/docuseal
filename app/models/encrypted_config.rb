@@ -21,14 +21,17 @@
 #  fk_rails_...  (account_id => accounts.id)
 #
 class EncryptedConfig < ApplicationRecord
-  FILES_STORAGE_KEY = 'active_storage'
-  EMAIL_SMTP_KEY = 'action_mailer_smtp'
-  ESIGN_CERTS_KEY = 'esign_certs'
-  APP_URL_KEY = 'app_url'
+  CONFIG_KEYS = [
+    FILES_STORAGE_KEY = 'active_storage',
+    EMAIL_SMTP_KEY = 'action_mailer_smtp',
+    ESIGN_CERTS_KEY = 'esign_certs',
+    TIMESTAMP_SERVER_URL_KEY = 'timestamp_server_url',
+    APP_URL_KEY = 'app_url'
+  ].freeze
 
   belongs_to :account
 
   encrypts :value
 
-  serialize :value, JSON
+  serialize :value, coder: JSON
 end

@@ -19,7 +19,7 @@ button .disabled {
   display: none;
 }
 
-button[disabled] .disabled {
+button[disabled] .disabled, button.btn-disabled .disabled {
   display: initial;
 }
 
@@ -27,12 +27,8 @@ button .enabled {
   display: initial;
 }
 
-button[disabled] .enabled {
+button[disabled] .enabled, button.btn-disabled .enabled {
   display: none;
-}
-
-select:required:invalid {
-  @apply text-gray-300;
 }
 
 .input-bordered {
@@ -45,6 +41,10 @@ select:required:invalid {
 
 .textarea-bordered {
   @apply border-base-content/20;
+}
+
+.base-textarea {
+  @apply textarea textarea-bordered bg-white rounded-3xl;
 }
 
 .btn {
@@ -69,4 +69,12 @@ select:required:invalid {
 
 .base-radio {
   @apply radio bg-white radio-sm;
+}
+
+.font-times {
+  font-family: "Times New Roman", Times, ui-serif, serif, Cambria, Georgia;
+}
+
+.font-courier {
+  font-family: "Courier New", Consolas, "Liberation Mono", monospace, ui-monospace, SFMono-Regular, Menlo, Monaco;
 }

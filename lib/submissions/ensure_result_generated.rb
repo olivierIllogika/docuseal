@@ -4,35 +4,48 @@ module Submissions
   module EnsureResultGenerated
     WAIT_FOR_RETRY = 2.seconds
     CHECK_EVENT_INTERVAL = 1.second
-    CHECK_COMPLETE_TIMEOUT = 20.seconds
+    CHECK_COMPLETE_TIMEOUT = 90.seconds
 
     WaitForCompleteTimeout = Class.new(StandardError)
+    NotCompletedYet = Class.new(StandardError)
 
     module_function
 
     def call(submitter)
-      return submitter.documents if ApplicationRecord.uncached { submitter.document_generation_events.complete.exists? }
+      return [] unless submitter
 
-      events =
-        ApplicationRecord.uncached do
-          DocumentGenerationEvent.where(submitter:).order(:created_at).to_a
-        end
+      raise NotCompletedYet unless submitter.completed_at?
+
+      total_wait_time ||= 0
+      key = ['result_attachments', submitter.id].join(':')
+
+      return submitter.documents.reload if ApplicationRecord.uncached { LockEvent.exists?(key:, event_name: :complete) }
+
+      events = ApplicationRecord.uncached { LockEvent.where(key:).order(:id).to_a }
 
       if events.present? && events.last.event_name.in?(%w[start retry])
         wait_for_complete_or_fail(submitter)
       else
-        submitter.document_generation_events.create!(event_name: events.present? ? :retry : :start)
+        LockEvent.create!(key:, event_name: events.present? ? :retry : :start)
 
-        GenerateResultAttachments.call(submitter)
+        documents = GenerateResultAttachments.call(submitter)
 
-        submitter.document_generation_events.create!(event_name: :complete)
+        LockEvent.create!(key:, event_name: :complete)
+
+        submitter.documents.reset
+
+        documents
       end
     rescue ActiveRecord::RecordNotUnique
       sleep WAIT_FOR_RETRY
+      total_wait_time += WAIT_FOR_RETRY
 
-      retry
-    rescue StandardError
-      submitter.document_generation_events.create!(event_name: :fail)
+      total_wait_time > CHECK_COMPLETE_TIMEOUT ? raise : retry
+    rescue StandardError => e
+      Rollbar.error(e) if defined?(Rollbar)
+      Rails.logger.error(e)
+
+      LockEvent.create!(key:, event_name: :fail)
 
       raise
     end
@@ -46,10 +59,10 @@ module Submissions
 
         last_event =
           ApplicationRecord.uncached do
-            DocumentGenerationEvent.where(submitter:).order(:created_at).last
+            LockEvent.where(key: ['result_attachments', submitter.id].join(':')).order(:id).last
           end
 
-        break last_event if last_event.event_name.in?(%w[complete fail])
+        break submitter.documents.reload if last_event.event_name.in?(%w[complete fail])
 
         raise WaitForCompleteTimeout if total_wait_time > CHECK_COMPLETE_TIMEOUT
       end

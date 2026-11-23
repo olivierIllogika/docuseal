@@ -1,8 +1,8 @@
-const { globalMutableWebpackConfig, merge } = require('shakapacker')
+const { generateWebpackConfig, merge } = require('shakapacker')
 const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin
 const { VueLoaderPlugin } = require('vue-loader')
 
-const configs = merge(globalMutableWebpackConfig, {
+const configs = generateWebpackConfig({
   resolve: {
     extensions: ['.css', '.scss', '.vue']
   },
@@ -11,12 +11,20 @@ const configs = merge(globalMutableWebpackConfig, {
   },
   optimization: {
     runtimeChunk: false,
+    concatenateModules: !process.env.BUNDLE_ANALYZE,
     splitChunks: {
+      chunks (chunk) {
+        return chunk.name !== 'rollbar' && chunk.name !== 'dynamic-editor'
+      },
       cacheGroups: {
         default: false,
         applicationVendors: {
           test: /\/node_modules\//,
           chunks: chunk => chunk.name === 'application'
+        },
+        drawVendors: {
+          test: /\/node_modules\//,
+          chunks: chunk => chunk.name === 'draw'
         },
         formVendors: {
           test: /\/node_modules\//,
@@ -31,8 +39,22 @@ const configs = merge(globalMutableWebpackConfig, {
   ].filter(Boolean)
 })
 
+configs.module.rules[3].exclude = /dynamic_styles\.scss$/
+
 configs.module = merge({
   rules: [
+    {
+      test: /dynamic_styles\.scss$/,
+      use: ['css-loader', 'postcss-loader', 'sass-loader']
+    },
+    {
+      test: /@hotwired\/turbo\/dist/,
+      loader: 'string-replace-loader',
+      options: {
+        search: 'const PREFETCH_DELAY = 100;',
+        replace: 'const PREFETCH_DELAY = 0;'
+      }
+    },
     {
       test: /\.vue$/,
       use: [{

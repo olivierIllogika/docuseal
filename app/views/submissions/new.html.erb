@@ -1,79 +1,51 @@
-<%= render 'shared/turbo_modal', title: 'New Recipients' do %>
-  <%= form_for '', url: template_submissions_path(@template), html: { class: 'space-y-4', autocomplete: 'off' }, data: { turbo_frame: :_top } do |f| %>
-    <% if @template.submitters.size == 1 %>
-      <div class="form-control">
-        <%= f.label :emails, class: 'label' %>
-        <autoresize-textarea>
-          <%= f.text_area :emails, required: true, class: 'base-textarea w-full' %>
-        </autoresize-textarea>
+<% require_phone_2fa = @template.preferences['require_phone_2fa'] == true %>
+<% require_email_2fa = @template.preferences['require_email_2fa'] == true %>
+<% prefillable_fields = @template.fields.select { |f| f['prefillable'] } %>
+<% viewer_submitter_uuids = Set.new(@template.submitters.pluck('uuid')) - Set.new(@template.fields.to_a.pluck('submitter_uuid')) %>
+<% default_tab = cookies.permanent[:add_recipients_tab].presence || 'email' %>
+<% recipient_form_fields = Accounts.load_recipient_form_fields(current_account) if prefillable_fields.blank? %>
+<% can_send_emails = Accounts.can_send_emails?(current_account) %>
+<% only_detailed = require_phone_2fa || require_email_2fa || prefillable_fields.present? || recipient_form_fields.present? %>
+<% with_list = !turbo_native_app? || can?(:manage, :bulk_send) %>
+<% with_phone = !turbo_native_app? || can?(:manage, :sms_verification) %>
+<% default_tab = 'email' if default_tab == 'phone' && !with_phone %>
+<% variables_form = render 'variables_form', schema: @template.variables_schema if @template.variables_schema.present? && @template.variables_schema.any? { |_, v| !v['disabled'] } %>
+<%= render 'shared/turbo_modal_large', title: params[:selfsign] ? t('add_recipients') : t('add_new_recipients') do %>
+  <% options = [only_detailed ? nil : [t('via_email'), 'email'], only_detailed || !with_phone ? nil : [t('via_phone'), 'phone'], [t('detailed'), 'detailed'], with_list ? [t('upload_list'), 'list'] : nil].compact %>
+  <% if options.size > 1 %>
+    <toggle-visible data-element-ids="<%= options.map(&:last).to_json %>" class="relative text-center px-2 block <%= turbo_native_app? ? ('mt-1.5' if turbo_native_android?) : 'mt-4' %> <%= 'max-sm:hidden' if options.one? { |_, value| value != 'list' } %>">
+      <div class="flex justify-center">
+        <% options.each_with_index do |(label, value), index| %>
+          <%= content_tag(value == 'list' ? 'span' : 'toggle-cookies', data: { value:, key: 'add_recipients_tab' }) do %>
+            <%= radio_button_tag 'option', value, value == (only_detailed ? 'detailed' : default_tab), class: 'peer hidden', data: { action: 'change:toggle-visible#trigger' } %>
+            <label for="option_<%= value %>" class="block bg-base-200 md:min-w-[112px] text-sm font-semibold whitespace-nowrap py-1.5 px-4 peer-checked:bg-base-300 <%= 'hidden sm:inline-block' if value == 'list' %> <%= 'rounded-l-3xl' if index.zero? %> <%= 'rounded-r-3xl sm:rounded-r-none' if value == 'detailed' && index != options.size - 1 %> <%= 'rounded-r-3xl' if index == options.size - 1 %>">
+              <%= label %>
+            </label>
+          <% end %>
+        <% end %>
       </div>
-    <% else %>
-      <dynamic-list class="space-y-4">
-        <div class="space-y-4">
-          <div class="card card-compact bg-base-200" data-targets="dynamic-list.items">
-            <div class="card-body">
-              <div class="absolute right-4 top-5">
-                <a href="#" data-action="click:dynamic-list#removeItem" class="-top-3 relative block w-6 h-6 rounded-lg text-neutral-700 text-center bg-base-300 p-1 hidden hover:bg-neutral hover:text-white">
-                  <%= svg_icon('trash', class: 'w-4 h-4') %>
-                </a>
-              </div>
-              <div class="grid md:grid-cols-2 gap-4">
-                <% @template.submitters.each do |item| %>
-                  <div class="form-control">
-                    <label class="label pt-0 pb-1 text-xs">
-                      <span class="label-text"> <%= item['name'] %></span>
-                    </label>
-                    <input type="hidden" name="submission[1][submitters][][uuid]" value="<%= item['uuid'] %>">
-                    <input type="email" name="submission[1][submitters][][email]" value="<%= item['email'] %>" autocomplete="off" class="input input-sm input-bordered" placeholder="Email" required>
-                  </div>
-                <% end %>
-              </div>
-            </div>
-          </div>
-        </div>
-        <a href="#" class="btn btn-primary btn-sm w-full flex items-center justify-center" data-action="click:dynamic-list#addItem">
-          <%= svg_icon('user_plus', class: 'w-4 h-4 stroke-2') %>
-          <span>Add Recipient</span>
-        </a>
-      </dynamic-list>
-    <% end %>
-    <div class="form-control">
-      <% is_smtp_configured = Accounts.can_send_emails?(current_account) %>
-      <%= f.label :send_email, class: 'flex items-center cursor-pointer' do %>
-        <%= f.check_box :send_email, class: 'base-checkbox', disabled: !is_smtp_configured, onchange: "message_field.classList.toggle('hidden', !event.currentTarget.checked)" %>
-        <span class="label">Send Email</span>
-      <% end %>
-      <% unless is_smtp_configured %>
-        <div class="alert my-4">
-          <%= svg_icon('info_circle', class: 'w-6 h-6') %>
-          <div>
-            <p class="font-bold">SMTP not Configured</p>
-            <p class="text-gray-700">
-              Configure SMTP settings in order to send emails:
-              <br>
-              <a class="link font-medium" data-turbo-frame="_top" href="<%= settings_email_index_path %>">Go to SMTP settings</a>
-            </p>
-          </div>
-        </div>
-      <% end %>
-    </div>
-    <div id="message_field" class="card card-compact bg-base-200 hidden">
-      <div class="card-body">
-        <div class="form-control space-y-2">
-          <span class="label-text">Hi there,</span>
-          <autoresize-textarea>
-            <%= f.text_area :message, value: format(SubmitterMailer::DEFAULT_MESSAGE, name: @template.name), required: true, class: 'base-textarea !rounded-lg w-full' %>
-          </autoresize-textarea>
-          <span class="label-text">
-            Thanks,
-            <br>
-            <%= current_account.name %>
-          </span>
-        </div>
-      </div>
-    </div>
-    <div class="form-control">
-      <%= f.button button_title(title: 'Add Recipients'), class: 'base-button' %>
-    </div>
+    </toggle-visible>
   <% end %>
+  <div class="px-5 mt-5 <%= 'mb-5' unless turbo_native_app? %>" style="<%= 'padding-inline: 18px' if turbo_native_app? %>">
+    <% unless only_detailed %>
+      <div id="email" class="<%= 'hidden' if default_tab != 'email' %>">
+        <%= render 'email_form', template: @template, variables_form:, can_send_emails:, viewer_submitter_uuids: %>
+      </div>
+      <% if with_phone %>
+        <div id="phone" class="<%= 'hidden' if default_tab != 'phone' %>">
+          <%= render 'phone_form', template: @template, variables_form: %>
+        </div>
+      <% end %>
+    <% end %>
+    <div id="detailed" class="<%= 'hidden' if !only_detailed && default_tab != 'detailed' %>">
+      <%= render 'detailed_form', template: @template, require_phone_2fa:, require_email_2fa:, prefillable_fields:, recipient_form_fields:, variables_form:, can_send_emails:, viewer_submitter_uuids: %>
+    </div>
+    <% if with_list %>
+      <div id="list" class="hidden">
+        <%= render 'list_form', template: @template, can_send_emails:, viewer_submitter_uuids: %>
+      </div>
+    <% end %>
+    <%= render 'submissions/error' %>
+  </div>
+  <%= content_for(:modal_extra) %>
 <% end %>

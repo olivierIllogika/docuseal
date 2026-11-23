@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   app:
     depends_on:
@@ -9,15 +7,15 @@ services:
     ports:
       - 3000:3000
     volumes:
-      - .:/data
+      - ./docuseal:/data/docuseal
     environment:
-      FORCE_SSL: 'true'
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/docuseal
+      - FORCE_SSL=${HOST}
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/docuseal
 
   postgres:
-    image: postgres:latest
+    image: postgres:18
     volumes:
-      - './pg_data:/var/lib/postgresql/data'
+      - './pg_data:/var/lib/postgresql/18/docker'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -36,6 +34,6 @@ services:
       - 443:443
       - 443:443/udp
     volumes:
-      - .:/data
+      - ./caddy:/data/caddy
     environment:
       - HOST=${HOST}

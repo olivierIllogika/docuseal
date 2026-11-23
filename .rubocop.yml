@@ -1,4 +1,4 @@
-require:
+plugins:
   - rubocop-performance
   - rubocop-rails
   - rubocop-rspec
@@ -10,7 +10,8 @@ AllCops:
     - node_modules/**/*
     - bin/*
     - vendor/**/*
-  TargetRubyVersion: '3.2'
+  TargetRubyVersion: '4.0'
+  SuggestExtensions: false
 
 Metrics/BlockLength:
   Exclude:
@@ -26,39 +27,78 @@ Style/Documentation:
 Lint/MissingSuper:
   Enabled: false
 
+Metrics/ParameterLists:
+  Max: 12
+
 Metrics/MethodLength:
-  Max: 20
+  Max: 40
   Exclude:
     - 'db/migrate/**'
+    - 'spec/**/*'
 
 Metrics/CyclomaticComplexity:
-  Max: 15
+  Max: 20
 
 Metrics/PerceivedComplexity:
-  Max: 15
+  Max: 20
+
+Style/MultipleComparison:
+  Enabled: false
+
+Style/NumericPredicate:
+  Enabled: false
+
+Style/MinMaxComparison:
+  Enabled: false
+
+Style/EmptyClassDefinition:
+  Enabled: false
+
+Style/OneClassPerFile:
+  Enabled: false
+
+Layout/MultilineMethodCallIndentation:
+  Enabled: false
+
+Naming/PredicateMethod:
+  Enabled: false
 
 Layout/LineLength:
   AllowedPatterns: ['\A\s*#']
 
 Metrics/AbcSize:
-  Max: 35
+  Max: 60
+  Exclude:
+    - spec/**/*
 
 Metrics/ModuleLength:
-  Max: 500
+  Max: 1000
 
 Metrics/ClassLength:
-  Max: 500
+  Max: 1000
 
 RSpec/NestedGroups:
   Max: 6
 
 RSpec/MultipleExpectations:
-  Max: 7
+  Max: 25
 
 RSpec/ExampleLength:
+  Max: 500
+
+RSpec/MultipleMemoizedHelpers:
   Max: 15
 
+RSpec/AnyInstance:
+  Enabled: false
+
+Metrics/BlockNesting:
+  Max: 6
+
 Rails/I18nLocaleTexts:
+  Enabled: false
+
+Rails/FindEach:
   Enabled: false
 
 Rails/SkipsModelValidations:
@@ -66,3 +106,19 @@ Rails/SkipsModelValidations:
 
 Rails/ApplicationController:
   Enabled: false
+
+Rails/Output:
+  Enabled: false
+
+Rails/StrongParametersExpect:
+  Enabled: false
+
+Rails/RedirectBackOrTo:
+  Enabled: false
+
+Rails/UnknownEnv:
+  Environments:
+    - development
+    - test
+    - production
+    - local

@@ -6,14 +6,15 @@ jobs:
   rubocop:
     name: Rubocop
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.2.2
+          ruby-version: 4.0.10
       - name: Cache gems
-        uses: actions/cache@v1
+        uses: actions/cache@v4
         with:
           path: vendor/bundle
           key: ${{ runner.os }}-gem-${{ hashFiles('**/Gemfile.lock') }}
@@ -30,14 +31,15 @@ jobs:
   erblint:
     name: Erblint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.2.2
+          ruby-version: 4.0.10
       - name: Cache gems
-        uses: actions/cache@v1
+        uses: actions/cache@v4
         with:
           path: vendor/bundle
           key: ${{ runner.os }}-gem-${{ hashFiles('**/Gemfile.lock') }}
@@ -49,21 +51,22 @@ jobs:
           bundle config path vendor/bundle
           bundle install --jobs 4 --retry 4
       - name: Run Erblint
-        run: bundle exec erblint ./app
+        run: bundle exec erb_lint ./app
 
   eslint:
     name: ESLint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install Node.js
         uses: actions/setup-node@v1
         with:
-          node-version: 16.13.1
+          node-version: 20.19.0
       - name: Cache directory path
         id: yarn-cache-dir-path
         run: echo "::set-output name=dir::$(yarn cache dir)"
-      - uses: actions/cache@v1
+      - uses: actions/cache@v4
         id: yarn-cache
         with:
           path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
@@ -77,48 +80,70 @@ jobs:
         run: |
           ./node_modules/eslint/bin/eslint.js "app/javascript/**/*.js"
 
-  rspec:
-    name: RSpec
+  brakeman:
+    name: Brakeman
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: docuseal_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.2.2
-      - name: Set up Node
-        uses: actions/setup-node@v1
-        with:
-          node-version: 16.13.1
-      - name: Install Chrome
-        uses: browser-actions/setup-chrome@latest
-      - name: Cache node_modules
-        uses: actions/cache@v1
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('**/yarn.lock') }}
+          ruby-version: 4.0.10
       - name: Cache gems
-        uses: actions/cache@v1
+        uses: actions/cache@v4
         with:
           path: vendor/bundle
           key: ${{ runner.os }}-gem-${{ hashFiles('**/Gemfile.lock') }}
           restore-keys: |
             ${{ runner.os }}-gem-
+      - name: Install gems
+        run: |
+          gem install bundler
+          bundle config path vendor/bundle
+          bundle install --jobs 4 --retry 4
+          yarn install
+          sudo apt-get update
+          sudo apt-get install libvips libleptonica6
+      - name: Run Brakeman
+        run: bundle exec brakeman -q --exit-on-warn
+
+  rspec:
+    name: RSpec
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: ruby:4.0.10-alpine
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: docuseal_test
+        options: >-
+          --health-cmd "pg_isready -U postgres -d docuseal_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Install packages
+        run: apk add --no-cache build-base git libpq-dev yaml-dev nodejs yarn tar zstd gzip wget unzip vips leptonica chromium
+      - uses: actions/checkout@v4
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-musl-node-${{ hashFiles('**/yarn.lock') }}
+      - name: Cache gems
+        uses: actions/cache@v4
+        with:
+          path: vendor/bundle
+          key: ${{ runner.os }}-musl-gem-${{ hashFiles('**/Gemfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-musl-gem-
       - name: Install dependencies
         env:
           RAILS_ENV: test
@@ -127,14 +152,18 @@ jobs:
           bundle config path vendor/bundle
           bundle install --jobs 4 --retry 4
           yarn install
-          sudo apt-get install libvips
+          wget -O pdfium-linux.zip "https://github.com/docusealco/pdfium-binaries/releases/latest/download/pdfium-musl-$(uname -m).zip"
+          unzip -q pdfium-linux.zip -d /tmp/pdfium-linux
+          cp /tmp/pdfium-linux/lib/libpdfium.so /usr/lib/libpdfium.so
+          rm -rf pdfium-linux.zip /tmp/pdfium-linux
       - name: Run
         env:
           RAILS_ENV: test
           NODE_ENV: test
           COVERAGE: true
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/docuseal_test
+          DATABASE_URL: postgres://postgres:postgres@postgres:5432/docuseal_test
         run: |
           bundle exec rake db:create
           bundle exec rake db:migrate
+          bundle exec rake assets:precompile
           bundle exec rspec

@@ -1,5 +1,6 @@
 /db/*.sqlite3
 
+**/node_modules
 /node_modules
 /coverage
 /doc
@@ -27,3 +28,4 @@
 /attachments
 /docuseal
 .DS_Store
+.env
